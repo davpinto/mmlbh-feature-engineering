@@ -1,0 +1,15 @@
+---
+title: "Feature Engineering for Model Performance Improvement"
+author: "David Pinto"
+date: "Last update: `r Sys.Date()`"
+output: 
+  github_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+> Using feature engineering to transform and create data variables in order to improve model performance.
+
+This respository stores the source code of the tutorial: [Feature Engineering in Machine Learning](http://davpinto.com/mmlbh-feature-engineering).
