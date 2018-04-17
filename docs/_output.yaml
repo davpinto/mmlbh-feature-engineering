@@ -1,0 +1,18 @@
+html_document:
+  self_contained: false
+  number_sections: false
+  keep_md: TRUE
+  toc: true
+  toc_float:
+    collapsed: false
+    smooth_scroll: false
+  toc_depth: 2
+  include:
+    after_body: footer.html
+  highlight: textmate
+  df_print: paged
+  code_folding: show
+  code_download: true
+  lib_dir: libraries
+  theme: flatly
+  css: style.css
