@@ -12,6 +12,7 @@ library(cluster)
 library(h2o)
 library(Rtsne)
 library(fastknn)
+library(xgboost)
 
 ## Load toy example
 load("./data/concentric_circles.rda")

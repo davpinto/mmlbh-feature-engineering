@@ -8,7 +8,7 @@ bibliography: references.bib
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
                       cache = TRUE, fig.align = "center", fig.path = "img/", 
-                      dev = "png", dpi = 120, out.width = "100%")
+                      dev = "jpeg", dpi = 250, out.width = "100%")
 
 ## Load required packages
 library(rmarkdown)
@@ -17,7 +17,7 @@ library(knitr)
 
 <div style="text-align: justify;text-justify: inter-word;">
 
-> aaa...
+> Código fonte: [GitHub](https://github.com/davpinto/mmlbh-feature-engineering).
 
 </div>
 
@@ -27,7 +27,186 @@ library(knitr)
 
 <div style="text-align: justify;text-justify: inter-word;">
 
-aaaa....
+- Exemplo GPS e data
+
+### Biblitecas Utilizadas
+
+Para avaliar as versões das bibliotecas utilizadas neste tutorial acesso o arquivo `requirements.txt` no repositório do GitHub.
+
+```{r}
+## Load required packages
+library(magrittr)    ## For the pipe operator %>% 
+library(purrr)       ## For functional programming
+library(tidyr)       ## For data cleaning and formating
+library(dplyr)       ## For data manipulation
+library(ggplot2)     ## For data visualization
+library(hrbrthemes)  ## For beautiful graph themes
+library(plotly)      ## For interactive graphs
+library(htmltools)   ## For showing html graphs
+library(Matrix)      ## For sparse matrices
+library(matrixStats) ## For fast row-wise and column-wise matrix operations
+library(cluster)     ## For clustering techniques
+library(h2o)         ## For scaled and fast ml algorithms
+library(Rtsne)       ## For the t-SNE algorithm
+library(fastknn)     ## For feature extraction with KNN
+library(xgboost)     ## For gradient boosting learners
+```
+
+</div>
+
+## Exemplo com Dados Sintéticos
+
+<div style="text-align: justify;text-justify: inter-word;">
+
+Vamos utilizar um exemplo clássico que consiste em um problema de classificação contendo 2 círculos concêntricos.
+
+```{r}
+## Load toy data
+load("../data/concentric_circles.rda")
+glimpse(concentric.circles)
+```
+
+Vamos primeiramente visualizar os dados:
+
+```{r}
+## Plot toy data
+g <- ggplot(concentric.circles, aes(x, y, shape = class, color = class)) +
+   geom_point(alpha = 1, size = 1.5) + 
+   scale_shape_manual(name = "Class", values = c(4, 3)) +
+   scale_color_manual(name = "Class", values = c('#0C4B8E', '#BF382A')) +
+   guides(shape = guide_legend(barwidth = 0.5, barheight = 7)) +
+   coord_fixed() +
+   labs(x = expression(x[1]), y = expression(x[2])) +
+   theme_ipsum(axis_title_size = 12)
+plot(g)
+```
+
+À primeira vista, é um problema de separação não-linear, ou seja, um classificador linear não é capaz de resolver o problema. Vamos treinar um modelo GLM Logístico para tentar gerar uma superficie de decisão que possa discernir as duas classes:
+
+```{r}
+## Create training data
+dt.train <- concentric.circles
+
+## Create test data
+n <- 200   
+x <- rep(seq(-1, 1, length = n), times = n)
+y <- rep(seq(-1, 1, length = n), each = n)
+dt.test <- data_frame(x = x, y = y)
+
+## Train GLM model
+glm.model <- glm(data = dt.train, formula = class ~ x + y, family = "binomial")
+yhat <- predict(glm.model, dt.test, type = "response")
+
+## Plot decision boundary for test data
+g <- data_frame(x1 = x, x2 = y, y = yhat, z = ifelse(y >= 0.5, 1, 0)) %>% 
+   ggplot() + 
+   geom_tile(aes_string("x1", "x2", fill = "y"), color = NA, size = 0, alpha = 0.8) +
+   scale_fill_distiller(name = "Prob +", palette = "Spectral", limits = c(0.38, 0.62)) +
+   geom_point(data = dt.train, aes_string("x", "y", shape = "class"), 
+              alpha = 1, size = 1.5, color = "black") + 
+   geom_contour(aes_string("x1", "x2", z = "z"), color = 'red', alpha = 0.6, 
+                size = 0.5, bins = 1) +
+   scale_shape_manual(name = "Class", values = c(4, 3)) +
+   guides(fill = guide_colorbar(barwidth = 0.5, barheight = 7),
+          shape = guide_legend(barwidth = 0.5, barheight = 7)) +
+   coord_fixed() +
+   labs(x = expression(x[1]), y = expression(x[2])) +
+   theme_ipsum(axis_title_size = 12)
+plot(g)
+```
+
+Como esperado, o modelo GLM não foi capaz de separar as duas classes. Poderíamos utilizar um classificador não-linear mais complexo para resolver o problema. No entanto, podemos gerar features que possibilitem nosso modelo linear a aprender o problema. Para o problema em questão apenas uma feature é suficiente:
+
+$$
+z = x^2 + y^2
+$$
+
+```{r}
+## Create a third feature
+dt.train <- dt.train %>% 
+   mutate(z = x^2 + y^2)
+dt.test <- dt.test %>% 
+   mutate(z = x^2 + y^2)
+
+## Plot 3d space
+p <- dt.train %>%  
+   plot_ly(x = ~x, y = ~y, z = ~z, color = ~class, colors = c('#0C4B8E', '#BF382A'), 
+           symbol = ~class, symbols = c("x", "cross")) %>%
+   add_markers() %>%
+   layout(scene = list(
+      xaxis = list(title = 'X1'), yaxis = list(title = 'X2'), 
+      zaxis = list(title = 'X3 = X1² + X2²')
+   ), autosize = TRUE)
+tagList(p)
+```
+
+Agora existe um separador linear (no espaço 3D é um plano) que distingue as duas classes:
+
+```{r}
+## Plot 3d surface boundary
+p <- plot_ly() %>% 
+   add_trace(type = "surface", x = seq(-1, 1, length = n), y = seq(-1, 1, length = n), 
+             z = matrix(0.5, ncol = n, nrow = n), colors = c('gray20', 'gray80'), 
+             color = c(0, 0.5, 1), showlegend = FALSE, name = "Decision Boundary", 
+             surfacecolor = matrix(seq(0, 1, length = 200), ncol = n, nrow = n), 
+             opacity = 0.8) %>% 
+   add_trace(type = "scatter3d", mode = "markers", x = dt.train$x[dt.train$class==0], 
+             y = dt.train$y[dt.train$class==0], z = dt.train$z[dt.train$class==0], 
+             marker = list(color = "#0C4B8E", symbol = "x"), name = "0") %>%
+   add_trace(type = "scatter3d", mode = "markers", x = dt.train$x[dt.train$class==1], 
+             y = dt.train$y[dt.train$class==1], z = dt.train$z[dt.train$class==1], 
+             marker = list(color = "#BF382A", symbol = "cross"), name = "1") %>% 
+   layout(scene = list(
+      xaxis = list(title = 'X1'), yaxis = list(title = 'X2'), 
+      zaxis = list(title = 'X3 = X1² + X2²')
+   ))
+tagList(p)
+```
+
+Vamos treinar novamente nosso modelo GLM incluindo essa terceira feature e ver o resultado que conseguimos:
+
+```{r}
+## Train GLM including the new feature
+glm.model <- glm(data = dt.train, formula = class ~ x + y + z, family = "binomial")
+yhat <- predict(glm.model, dt.test, type = "response")
+
+## Plot decision binary for the new 3d test set
+g <- data_frame(x1 = x, x2 = y, y = yhat, z = ifelse(y >= 0.5, 1, 0)) %>% 
+   ggplot() + 
+   geom_tile(aes_string("x1", "x2", fill = "y"), color = NA, size = 0, alpha = 0.8) +
+   scale_fill_distiller(name = "Prob +", palette = "Spectral", limits = c(0, 1)) +
+   geom_point(data = dt.train, aes_string("x", "y", shape = "class"), 
+              alpha = 1, size = 1.5, color = "black") + 
+   geom_contour(aes_string("x1", "x2", z = "z"), color = 'red', alpha = 0.6, 
+                size = 0.5, bins = 1) +
+   scale_shape_manual(name = "Class", values = c(4, 3)) +
+   guides(fill = guide_colorbar(barwidth = 0.5, barheight = 7),
+          shape = guide_legend(barwidth = 0.5, barheight = 7)) +
+   coord_fixed() +
+   labs(x = expression(x[1]), y = expression(x[2])) +
+   theme_ipsum(axis_title_size = 12)
+plot(g)
+```
+
+Gerando uma nova feature, originada de uma combinação simples das features existentes, possibilitamos que nosso modelo linear solucionasse o problema, e nesse caso não foi preciso partir para um modelo mais complexo com superfície de decisão não-linear.
+
+Esse é o poder da **Engenharia de Features**!
+
+</div>
+
+## Leituras Adicionais
+
+<div style="text-align: justify;text-justify: inter-word;">
+
+### Tutorial do Nubank
+
+- HJ van Veen (Cientista de Dados do Nubank): [Feature Engineering](https://pt.slideshare.net/HJvanVeen/feature-engineering-72376750).
+
+### Livros
+
+Applied Predictive Modeling           | Feature Engineering for Machine Learning
+------------------------------------- | -------------------------------------
+![](./img/book-applied-pred-mod.jpg)  | ![](./img/book-feature-engineering.jpg)
 
 </div>
 
