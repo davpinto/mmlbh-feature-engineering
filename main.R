@@ -5,7 +5,9 @@ library(tidyr)
 library(dplyr)
 library(ggplot2)
 library(hrbrthemes)
+library(reshape2)
 library(plotly)
+library(GGally)
 library(Matrix)
 library(matrixStats)
 library(cluster)
@@ -167,7 +169,50 @@ g <- data_frame(x = cat.prop) %>%
 plot(g)
 
 ## Row stats features
+col.scale <- colMaxs(abs(x))
+x.sc <- sweep(x, 2, col.scale, "/")
+x.rowstats <- round(cbind(
+   rowMeans(x.sc),
+   rowMedians(x.sc),
+   rowSds(x.sc),
+   rowIQRs(x.sc),
+   rowQuantiles(x.sc, probs = c(0.1, 0.25, 0.75, 0.9)),
+   apply(x.sc, 1, function(x.row) sum(x.row==0)),
+   apply(x.sc, 1, which.max),
+   apply(x.sc, 1, which.min),
+   apply(census.income, 1, function(data.row) sum(is.na(data.row)))
+), 6)
+summary(x.rowstats)
+col.vars <- apply(x.rowstats, 2, var)
+x.rowstats <- x.rowstats[,-which(col.vars == 0)]
+colnames(x.rowstats) <- paste0("rowstats_", 1:ncol(x.rowstats))
+dim(x.rowstats)
 
+## Plot rowstats features
+set.seed(2020)
+g <- bind_cols(
+   as.data.frame(x.rowstats),
+   select(dt.fill, income)                 
+) %>% 
+   group_by(income) %>% 
+   mutate(wt = n()) %>% 
+   ungroup() %>% 
+   mutate(wt = 1 - wt / n()) %>% 
+   sample_n(size = 5e3, weight = wt) %>% 
+   select(-wt) %>% 
+   melt(id.vars = "income", variable.name = "feature") %>% 
+   ggplot(aes(x = income, y = value, fill = income, color = income)) +
+   geom_jitter(size = 0.3, alpha = 0.4, color = "black") +
+   geom_boxplot(outlier.shape = NA, alpha = 0.6, size = 0.5) +
+   scale_color_brewer(name = "Income", palette = "Set1") +
+   scale_fill_brewer(name = "Income", palette = "Set1") +
+   facet_wrap(~feature, ncol = 3, scales = "free_y") +
+   theme_ipsum(axis_title_size = 0)
+g
+
+## Clustering features
+cl.model <- clara(x.sc, k = 6, stand = FALSE, medoids.x = FALSE, 
+                  keep.data = FALSE)
 
 library(fastknn)
 

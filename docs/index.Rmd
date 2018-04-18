@@ -194,7 +194,13 @@ Esse é o poder da **Engenharia de Features**!
 
 </div>
 
-## Leituras Adicionais
+## Exemplo com Dados Reais
+
+### Análise Exploratória dos Dados
+
+
+
+## Para Aprofundar no Assunto
 
 <div style="text-align: justify;text-justify: inter-word;">
 
