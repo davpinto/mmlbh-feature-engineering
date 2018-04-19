@@ -636,7 +636,7 @@ p <- plot_ly(x = x.tsne[,1], y = x.tsne[,2], z = x.tsne[,3],
 tagList(p)
 ```
 
-## Extração de Características usando Auto-Encoder
+### Extração de Características usando Auto-Encoder
 
 O Auto-Encoder, ou Deep Auto-Encoder (como tem sido chamado atualmente), é um modelo de rede neural artificial cuja saída são os próprios dados de entrada. Usando uma camada de neurônios central contendo um número de nós consideravelmente menor que a dimensão dos dados de entrada, essa rede consegue fazer um mapeamento não-linear dos dados e ao mesmo tempo reduzir a dimensionalidade. Essa estrutura de rede é exemplificada na figura a seguir:
 
