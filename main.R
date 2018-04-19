@@ -7,13 +7,13 @@ library(ggplot2)
 library(hrbrthemes)
 library(reshape2)
 library(plotly)
-library(GGally)
-library(Matrix)
 library(matrixStats)
-library(cluster)
+library(dbscan)
+library(MASS)
 library(h2o)
 library(Rtsne)
 library(fastknn)
+library(Matrix)
 library(xgboost)
 
 ## Load toy example
@@ -168,6 +168,22 @@ g <- data_frame(x = cat.prop) %>%
    theme_ipsum(axis_title_size = 12)
 plot(g)
 
+## Feature transformation
+g <- data_frame(
+   x = c(dt.fill$fnlwgt, sqrt(dt.fill$fnlwgt), log(dt.fill$fnlwgt)),
+   type = factor(
+      rep(c("Original", "Sqrt transformation", "Log transformation"), each = nrow(dt.fill)),
+      levels = c("Original", "Sqrt transformation", "Log transformation")
+   )
+) %>% 
+   ggplot(aes(x = x, fill = type)) +
+   geom_density(adjust = 2, size = 0.5, alpha = 0.8) +
+   scale_fill_brewer(guide = "none", palette = "Set1") +
+   facet_wrap(~type, scales = "free") +
+   theme_ipsum(axis_title_size = 12) +
+   labs(x = "Feature values", y = "KDE Estimates")
+plot(g)
+
 ## Row stats features
 col.scale <- colMaxs(abs(x))
 x.sc <- sweep(x, 2, col.scale, "/")
@@ -187,6 +203,7 @@ col.vars <- apply(x.rowstats, 2, var)
 x.rowstats <- x.rowstats[,-which(col.vars == 0)]
 colnames(x.rowstats) <- paste0("rowstats_", 1:ncol(x.rowstats))
 dim(x.rowstats)
+save(x.rowstats, file = "./data/rowstats_features.rda", compress = "bzip2")
 
 ## Plot rowstats features
 set.seed(2020)
@@ -211,13 +228,320 @@ g <- bind_cols(
 g
 
 ## Clustering features
-cl.model <- clara(x.sc, k = 6, stand = FALSE, medoids.x = FALSE, 
-                  keep.data = FALSE)
+set.seed(2020)
+cl.model <- dbscan(x.sc, eps = 0.5, minPts = 128)
+cl.features <- data_frame(
+   cluster = factor(cl.model$cluster, levels = sort(unique(cl.model$cluster))),
+   class = dt.fill$income
+) %>% 
+   mutate(
+      pos_class_prop = sum(class == ">50k") / n(),
+      neg_class_prop = sum(class == "<=50k") / n()
+   ) %>% 
+   group_by(cluster) %>% 
+   mutate(
+      pos_cluster_prop = sum(class == ">50k") / n() / pos_class_prop,
+      neg_cluster_prop = sum(class == "<=50k") / n() / neg_class_prop
+   ) %>%
+   ungroup() %>% 
+   mutate(
+      pos_cluster_prop = pos_cluster_prop / (pos_cluster_prop + neg_cluster_prop),
+      neg_cluster_prop = neg_cluster_prop / (pos_cluster_prop + neg_cluster_prop)
+   )
+g <- ggplot(cl.features, aes(x = pos_cluster_prop, fill = class)) +
+   geom_density(size = 0.5, adjust = 5, color = "black", alpha = 0.8) +
+   scale_fill_brewer(name = "Income", palette = "Set1") +
+   scale_x_continuous(breaks = seq(0, 1, by = 0.25), limits = c(0, 1)) +
+   labs(x = "Positive class proportion inside each cluster", y = "KDE Estimates") +
+   theme_ipsum(axis_title_size = 12)
+plot(g)
+x.cluster <- cbind(
+   table(1:nrow(cl.features), cl.features$cluster), cl.features$pos_cluster_prop
+)
+colnames(x.cluster) <- paste0("cluster_", 1:ncol(x.cluster))
+rownames(x.cluster) <- NULL   
+save(x.cluster, file = "./data/cluster_features.rda", compress = "bzip2")
 
-library(fastknn)
+## PCA features
+pca.model <- prcomp(x.sc, retx = FALSE, center = TRUE, scale. = FALSE)
+x.pca <- predict(pca.model, x.sc)[,1:3]
+colnames(x.pca) <- paste0("pca_", 1:ncol(x.pca))
+exp.var <- cumsum(pca.model$sdev) / sum(pca.model$sdev)
+g <- data_frame(
+   var = exp.var,
+   npcs = 1:length(exp.var)
+) %>% 
+   ggplot(aes(x = npcs, y = var, fill = var)) +
+   geom_col(width = 0.8, size = 0.1, alpha = 0.8, color = "white") +
+   scale_fill_distiller(guide = "none", palette = "Spectral") + 
+   geom_hline(yintercept = 0.8, size = 0.5, color = "gray40", linetype = "dashed") +
+   geom_vline(aes(xintercept = npcs[which(var >= 0.8)[1]]), size = 0.5, 
+              color = "gray40", linetype = "dashed") +
+   scale_x_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100)) +
+   scale_y_continuous(breaks = seq(0, 1, by = 0.1), limits = c(0, 1)) +
+   labs(x = "Number of PCs", y = "Explained Variance") +
+   theme_ipsum(axis_title_size = 12)
+plot(g)
+save(x.pca, file = "./data/pca_features.rda", compress = "bzip2")
 
-x <- data.matrix(concentric.circles[,-3])
-new.x <- knnExtract(x, concentric.circles$class, x)
+## Plot PCA features
+g <- data_frame(
+   pc1 = x.pca[, 1], pc2 = x.pca[, 2], y = dt.fill$income
+) %>% 
+   ggplot(aes(x = pc1, y = pc2, color = y)) +
+   geom_point(size = 1, alpha = 0.8) +
+   scale_color_brewer(name = "Income", palette = "Set1") +
+   labs(x = "PC1", y = "PC2") +
+   theme_ipsum(axis_title_size = 12)
+plot(g)
 
-plot(x, col = concentric.circles$class, pch = 20)
-plot(new.x$new.tr, col = concentric.circles$class, pch = 20)
+## LDA features
+lda.model <- lda(x = x.sc, grouping = dt.fill$income)
+x.lda <- predict(lda.model, x.sc)$x
+colnames(x.lda) <- paste0("lda_", 1:ncol(x.lda))
+save(x.lda, file = "./data/lda_features.rda", compress = "bzip2")
+
+## Plot LDA features
+g <- data_frame(
+   x = x.lda[, 1], y = dt.fill$income
+) %>% 
+   ggplot(aes(x = x, fill = y)) +
+   geom_density(size = 0.5, adjust = 2, color = "black", alpha = 0.8) +
+   scale_fill_brewer(name = "Income", palette = "Set1") +
+   # scale_x_continuous(breaks = seq(0, 1, by = 0.25), limits = c(0, 1)) +
+   labs(x = "LDA Feature", y = "KDE Estimates") +
+   theme_ipsum(axis_title_size = 12)
+plot(g)
+   
+## t-SNE Features
+set.seed(2020)
+x.tsne <- Rtsne(x, check_duplicates = FALSE, pca = TRUE, initial_dims = 16, 
+               perplexity = 15, theta = 0.5, dims = 3, verbose = TRUE, 
+               max_iter = 500)$Y
+colnames(x.tsne) <- paste0("tsne_", 1:ncol(x.tsne))
+save(x.tsne, file = "./data/tsne_features.rda", compress = "bzip2")
+
+## Plot t-SNE features
+p <- plot_ly(x = x.tsne[,1], y = x.tsne[,2], z = x.tsne[,3], 
+             color = dt.fill$income, colors = c('black', 'red'), 
+             opacity = 0.6, marker = list(size = 3)) %>%
+   add_markers() %>%
+   layout(scene = list(
+      xaxis = list(title = 'tSNE 1'), yaxis = list(title = 'tSNE 2'), 
+      zaxis = list(title = 'tSNE 3')
+   ))
+p
+
+## Autoencoder features
+h2o.init(nthreads = 4, max_mem_size = '4G')
+h2o.removeAll()
+data.hex <- as.h2o(as.data.frame(x.sc), destination_frame = "data_hex")
+dl.model <- h2o.deeplearning(x = colnames(x.sc), training_frame = data.hex, 
+                             activation = "Tanh", epochs = 50, seed = 2020,
+                             hidden=c(128, 64, 3, 64, 128), autoencoder = TRUE)
+x.autoencoder <- h2o.deepfeatures(dl.model, data = data.hex, layer = 3) %>% 
+   as.data.frame() %>% 
+   data.matrix()
+h2o.shutdown(prompt = FALSE)
+colnames(x.autoencoder) <- paste0("autoencoder_", 1:ncol(x.autoencoder))
+save(x.autoencoder, file = "./data/autoencoder_features.rda", compress = "bzip2")
+
+## Plot autoencoder features
+p <- plot_ly(x = x.autoencoder[,1], y = x.autoencoder[,2], z = x.autoencoder[,3], 
+             color = dt.fill$income, colors = c('black', 'red'), 
+             opacity = 0.6, marker = list(size = 3)) %>%
+   add_markers() %>%
+   layout(scene = list(
+      xaxis = list(title = 'DL 1'), yaxis = list(title = 'DL 2'), 
+      zaxis = list(title = 'DL 3')
+   ))
+p
+
+## KNN Features with toy data
+x.circles <- data.matrix(concentric.circles[,-3])
+g <- knnDecision(xtr = x.circles, ytr = concentric.circles$class, xte = x.circles, 
+                 yte = concentric.circles$class, k = 3) +
+   theme_ipsum(axis_title_size = 12)
+plot(g)
+new.x <- knnExtract(xtr = x.circles, ytr = concentric.circles$class, 
+                    xte = x.circles, k = 1)
+g <- knnDecision(xtr = new.x$new.tr, ytr = concentric.circles$class, 
+                 xte = new.x$new.tr, yte = concentric.circles$class, k = 3) +
+   theme_ipsum(axis_title_size = 12)
+plot(g)
+
+## KNN Features
+x.knn <- knnExtract(xtr = x.sc, ytr = dt.fill$income, xte = x.sc, k = 1, 
+                    nthread = 4)$new.tr
+g <- data_frame(
+   x1 = x.knn[, 1], x2 = x.knn[, 2], y = dt.fill$income
+) %>% 
+   ggplot(aes(x = x1, y = x2, color = y)) +
+   geom_point(size = 1, alpha = 0.8) +
+   scale_color_brewer(name = "Income", palette = "Set1") +
+   labs(x = "KNN Feature 1", y = "KNN Feature 2") +
+   theme_ipsum(axis_title_size = 12)
+plot(g)
+g <- knnDecision(xtr = x.knn, ytr = dt.fill$income, xte = x.knn, 
+                 yte = dt.fill$income, k = 3) +
+   theme_ipsum(axis_title_size = 12)
+plot(g)
+
+## Generate more KNN features
+x.knn <- knnExtract(xtr = x.sc, ytr = dt.fill$income, xte = x.sc, k = 5, 
+                    nthread = 4)$new.tr
+colnames(x.knn) <- paste0("knn_", 1:ncol(x.knn))
+save(x.knn, file = "./data/knn_features.rda", compress = "bzip2")
+
+## Plot 3D KNN features
+p <- plot_ly(x = x.knn[, 1], y = x.knn[, 5], z = x.knn[, 10], 
+             color = dt.fill$income, colors = c('black', 'red'), 
+             opacity = 0.6, marker = list(size = 3)) %>%
+   add_markers() %>%
+   layout(scene = list(
+      xaxis = list(title = 'KNN 1'), yaxis = list(title = 'KNN 5'), 
+      zaxis = list(title = 'KNN 10')
+   ))
+p
+
+## Train xgboost with original features
+dtrain <- xgb.DMatrix(
+   Matrix(x.sc, sparse = TRUE),
+   label = as.integer(dt.fill$income) - 1
+)
+xgb.params <- list(
+   "booster" = "gbtree",
+   "eta" = 0.05,
+   "max_depth" = 4,
+   "subsample" = 0.632,
+   "colsample_bytree" = 0.4,
+   "colsample_bylevel" = 0.6,
+   "min_child_weight" = 1,
+   "gamma" = 0,
+   "lambda" = 0,
+   "alpha" = 0,
+   "objective" = "binary:logistic",
+   "eval_metric" = "auc",
+   "silent" = 1,
+   "nthread" = 4,
+   "num_parallel_tree" = 5
+)
+set.seed(2020)
+cv.out <- xgb.cv(params = xgb.params, data = dtrain, nrounds = 1.5e3,
+                 metrics = list('error'), nfold = 5, prediction = FALSE, 
+                 verbose = TRUE, showsd = FALSE, print.every.n = 10, 
+                 early.stop.round = 10, maximize = TRUE)
+max(cv.out$train.auc.mean)
+min(cv.out$train.error.mean)
+max(cv.out$test.auc.mean)
+min(cv.out$test.error.mean)
+which.max(cv.out$test.auc.mean)
+xgb.model <- xgb.train(data = dtrain, params = xgb.params, 
+                       nrounds = 750)
+var.imp <- xgb.importance(colnames(x.sc), model = xgb.model) %>% 
+   mutate(Feature = gsub('[0-9]+', '', Feature)) %>%
+   group_by(Feature) %>% 
+   summarise(Importance = quantile(Gain, 0.9)) %>% 
+   ungroup() %>% 
+   arrange(desc(Importance)) %>% 
+   mutate(Importance = round(100 * Importance / sum(Importance), 2))
+
+## Train xgboost with new features
+load("data/rowstats_features.rda")
+load("data/cluster_features.rda")
+load("data/pca_features.rda")
+load("data/lda_features.rda")
+load("data/tsne_features.rda")
+load("data/autoencoder_features.rda")
+load("data/knn_features.rda")
+new.x <- cbind(
+   x.rowstats, x.cluster, x.pca, x.lda, x.tsne, x.autoencoder, x.knn
+)
+dtrain <- xgb.DMatrix(
+   Matrix(new.x, sparse = TRUE),
+   label = as.integer(dt.fill$income) - 1
+)
+set.seed(2020)
+cv.out <- xgb.cv(params = xgb.params, data = dtrain, nrounds = 1.5e3,
+                 metrics = list('error'), nfold = 5, prediction = FALSE, 
+                 verbose = TRUE, showsd = FALSE, print.every.n = 10, 
+                 early.stop.round = 10, maximize = TRUE)
+max(cv.out$train.auc.mean)
+min(cv.out$train.error.mean)
+max(cv.out$test.auc.mean)
+min(cv.out$test.error.mean)
+which.max(cv.out$test.auc.mean)
+xgb.model <- xgb.train(data = dtrain, params = xgb.params, 
+                       nrounds = 750)
+var.imp <- xgb.importance(colnames(new.x), model = xgb.model) %>% 
+   mutate(Feature = gsub('[0-9]:', '', Feature)) %>%
+   group_by(Feature) %>% 
+   summarise(Importance = quantile(Gain, 0.9)) %>% 
+   ungroup() %>% 
+   arrange(desc(Importance)) %>% 
+   mutate(Importance = round(100 * Importance / sum(Importance), 2))
+
+## Train xgboost with all features
+all.x <- cbind(x.sc, new.x)
+dtrain <- xgb.DMatrix(
+   Matrix(all.x, sparse = TRUE),
+   label = as.integer(dt.fill$income) - 1
+)
+set.seed(2020)
+cv.out <- xgb.cv(params = xgb.params, data = dtrain, nrounds = 1.5e3,
+                 metrics = list('error'), nfold = 5, prediction = FALSE, 
+                 verbose = TRUE, showsd = FALSE, print.every.n = 10, 
+                 early.stop.round = 10, maximize = TRUE)
+max(cv.out$train.auc.mean)
+min(cv.out$train.error.mean)
+max(cv.out$test.auc.mean)
+min(cv.out$test.error.mean)
+which.max(cv.out$test.auc.mean)
+xgb.model <- xgb.train(data = dtrain, params = xgb.params, 
+                       nrounds = 500)
+var.imp <- xgb.importance(colnames(all.x), model = xgb.model) %>% 
+   mutate(Feature = gsub('[0-9]:', '', Feature)) %>%
+   group_by(Feature) %>% 
+   summarise(Importance = quantile(Gain, 0.9)) %>% 
+   ungroup() %>% 
+   arrange(desc(Importance)) %>% 
+   mutate(Importance = round(100 * Importance / sum(Importance), 2))
+
+## Train GLM with original features
+orig.hex <- as.h2o(cbind.data.frame(as.data.frame(x.sc), income = dt.fill$income), 
+                   destination_frame = "orig_hex")
+glm.model <- h2o.glm(x = colnames(x.sc), y = "income", training_frame = orig.hex, 
+                     nfolds = 5, seed = 2020, family = "binomial", alpha = 0, 
+                     lambda = 0, solver = "IRLSM", standardize = TRUE, 
+                     intercept = TRUE, max_iterations = 1e3)
+h2o.auc(glm.model@model$cross_validation_metrics)
+h2o.confusionMatrix(glm.model@model$cross_validation_metrics)
+
+## Train GLM with new features
+new.hex <- as.h2o(cbind.data.frame(as.data.frame(new.x), income = dt.fill$income), destination_frame = "new_hex")
+glm.model <- h2o.glm(x = colnames(new.x), y = "income", training_frame = new.hex, 
+                     nfolds = 5, seed = 2020, family = "binomial", alpha = 0, 
+                     lambda = 0, solver = "IRLSM", standardize = TRUE, 
+                     intercept = TRUE, max_iterations = 1e3)
+h2o.auc(glm.model@model$cross_validation_metrics)
+h2o.confusionMatrix(glm.model@model$cross_validation_metrics)
+
+## Train GLM with all features
+all.hex <- as.h2o(cbind.data.frame(as.data.frame(all.x), income = dt.fill$income), destination_frame = "all_hex")
+glm.model <- h2o.glm(x = colnames(all.x), y = "income", training_frame = all.hex, 
+                     nfolds = 5, seed = 2020, family = "binomial", alpha = 0, 
+                     lambda = 0, solver = "IRLSM", standardize = TRUE, 
+                     intercept = TRUE, max_iterations = 1e3)
+h2o.auc(glm.model@model$cross_validation_metrics)
+h2o.confusionMatrix(glm.model@model$cross_validation_metrics)
+
+## Train GLM with features selection
+glm.model <- h2o.glm(x = colnames(all.x), y = "income", training_frame = all.hex, 
+                     nfolds = 5, seed = 2020, family = "binomial", alpha = 1, 
+                     lambda_search = TRUE, nlambdas = 50, 
+                     max_active_predictors = 75, solver = "IRLSM", 
+                     standardize = TRUE, intercept = TRUE, max_iterations = 1e3)
+h2o.auc(glm.model@model$cross_validation_metrics)
+h2o.confusionMatrix(glm.model@model$cross_validation_metrics)
+head(h2o.varimp(glm.model), 20)
+tail(h2o.varimp(glm.model), 20)
