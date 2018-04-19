@@ -545,3 +545,19 @@ h2o.auc(glm.model@model$cross_validation_metrics)
 h2o.confusionMatrix(glm.model@model$cross_validation_metrics)
 head(h2o.varimp(glm.model), 20)
 tail(h2o.varimp(glm.model), 20)
+
+## Train random Forest to rank variables
+rf.model <- h2o.randomForest(
+   x = colnames(all.x), y = "income", training_frame = all.hex, 
+   nfolds = 5, seed = 2020, ntrees = 500, stopping_rounds = 2, 
+   stopping_metric = 'AUC', stopping_tolerance = 1e-5, 
+   score_each_iteration = FALSE, score_tree_interval = 5, 
+   max_depth = 16, min_rows = 32, sample_rate = 0.632, 
+   mtries = 32, col_sample_rate_per_tree = 0.6, nbins = 16, nbins_cats = 16,
+   histogram_type = "Random"
+)
+h2o.auc(rf.model@model$cross_validation_metrics)
+h2o.confusionMatrix(rf.model@model$cross_validation_metrics)
+rf.model@parameters$ntrees
+rf.varimp <- h2o.varimp(rf.model)
+head(rf.varimp, 20)
