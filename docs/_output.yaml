@@ -6,7 +6,7 @@ html_document:
   toc_float:
     collapsed: false
     smooth_scroll: false
-  toc_depth: 2
+  toc_depth: 3
   include:
     after_body: footer.html
   highlight: textmate
