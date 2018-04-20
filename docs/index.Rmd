@@ -17,7 +17,7 @@ library(knitr)
 
 <div style="text-align: justify;text-justify: inter-word;">
 
-> Este tutorial ensina a utilizar técnicas de transformação e extração de características para melhorar a performance de modelos de predição. Todos os códigos executados estão disponíveis em meu [GitHub](https://github.com/davpinto/mmlbh-feature-engineering) (não esquece de dar uma estrelinha se você gostar!).
+> Este tutorial ensina a utilizar técnicas de transformação e extração de características para melhorar a performance de modelos de predição. Todos os códigos executados estão disponíveis em meu [GitHub](https://github.com/davpinto/mmlbh-feature-engineering) (**não esquece de dar uma estrelinha se você gostar!**).
 
 </div>
 
@@ -66,7 +66,7 @@ Para enxergar o que as features orignais não nos permite ver!
 
 ### Biblitecas Utilizadas
 
-Neste tutorial utilizaremos a linguguem `R` na versão `3.3.1` e algumas das bibliotecas mais famosas de manipulação, visualização e modelagem de dados. Para checar as versões das bibliotecas utilizadas neste tutorial acesso o arquivo `requirements.txt` no repositório do [GitHub](https://github.com/davpinto/mmlbh-feature-engineering/blob/master/requirements.txt).
+Neste tutorial utilizaremos a linguguem `R` na versão `3.3.1` e algumas das bibliotecas mais famosas de manipulação, visualização e modelagem de dados. Para checar as versões das bibliotecas utilizadas neste tutorial, acesse o arquivo `requirements.txt` no repositório do [GitHub](https://github.com/davpinto/mmlbh-feature-engineering/blob/master/requirements.txt).
 
 ```{r}
 ## Load required packages
