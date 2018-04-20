@@ -877,11 +877,13 @@ h2o.auc(rf.model@model$cross_validation_metrics)
 h2o.confusionMatrix(rf.model@model$cross_validation_metrics)
 ```
 
-```{r results='hide'}
+```{r}
 ## Variable importance
 rf.varimp <- h2o.varimp(rf.model)
 head(rf.varimp, 20)
+```
 
+```{r results='hide'}
 ## Close h2o cluster
 h2o.shutdown(prompt = FALSE)
 ```
